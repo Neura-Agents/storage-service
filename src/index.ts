@@ -61,11 +61,22 @@ app.get('/backend/api/storage/view/:id', authenticate, async (req: Authenticated
     try {
         const { id } = req.params;
         
-        // Fetch metadata from DB
-        const result = await pool.query('SELECT storage_key FROM storage_metadata WHERE id = $1', [id]);
+        // Fetch metadata from DB - SECURE: Verify Ownership
+        const userId = req.user?.id;
+        const isAdmin = req.user?.roles?.includes('platform-admin');
+        
+        let query = 'SELECT storage_key FROM storage_metadata WHERE id = $1';
+        let values = [id];
+        
+        if (!isAdmin) {
+            query += ' AND user_id = $2';
+            values.push(userId as any);
+        }
+
+        const result = await pool.query(query, values);
         
         if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'File not found' });
+            return res.status(404).json({ error: 'File not found or access denied' });
         }
 
         const { storage_key } = result.rows[0];
@@ -91,7 +102,7 @@ app.get('/backend/api/storage/list', authenticate, async (req: AuthenticatedRequ
             userId: typeof userId === 'string' ? userId : undefined,
             fileName: typeof fileName === 'string' ? fileName : undefined,
             mimeType: typeof type === 'string' ? type : undefined
-        });
+        }, req.user?.id, req.user?.roles?.includes('platform-admin'));
 
         res.json({ success: true, count: documents.length, documents });
     } catch (error) {
@@ -104,10 +115,10 @@ app.get('/backend/api/storage/list', authenticate, async (req: AuthenticatedRequ
 app.delete('/backend/api/storage/:id', authenticate, async (req: AuthenticatedRequest, res) => {
     try {
         const { id } = req.params;
-        const result = await storageService.delete([id as string]);
+        const result = await storageService.delete([id as string], req.user?.id as string, req.user?.roles?.includes('platform-admin'));
         
         if (result.deletedCount === 0) {
-            return res.status(404).json({ success: false, error: 'File not found or already deleted' });
+            return res.status(404).json({ success: false, error: 'File not found, access denied, or already deleted' });
         }
 
         res.json({ success: true, message: 'File deleted successfully', id });
@@ -124,8 +135,9 @@ app.post('/backend/api/storage/delete-bulk', authenticate, async (req: Authentic
         if (!ids || !Array.isArray(ids) || ids.length === 0) {
             return res.status(400).json({ success: false, error: 'Invalid or empty ids list' });
         }
-
-        const result = await storageService.delete(ids);
+        
+        const isAdmin = req.user?.roles?.includes('platform-admin');
+        const result = await storageService.delete(ids, req.user?.id as string, isAdmin);
         
         res.json({ 
             success: true, 

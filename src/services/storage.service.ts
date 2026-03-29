@@ -95,19 +95,22 @@ class StorageService {
         }
     }
 
-    async list(filters: { id?: string; userId?: string; fileName?: string; mimeType?: string }) {
+    async list(filters: { id?: string; userId?: string; fileName?: string; mimeType?: string }, requestingUserId?: string, isAdmin: boolean = false) {
         try {
             let query = 'SELECT * FROM storage_metadata WHERE 1=1';
             const values: any[] = [];
             let counter = 1;
 
+            // Enforcement: If not admin, strictly filter by requestingUserId
+            const effectiveUserId = isAdmin ? filters.userId : requestingUserId;
+
             if (filters.id) {
                 query += ` AND id = $${counter++}`;
                 values.push(filters.id);
             }
-            if (filters.userId) {
+            if (effectiveUserId) {
                 query += ` AND user_id = $${counter++}`;
-                values.push(filters.userId);
+                values.push(effectiveUserId);
             }
             if (filters.fileName) {
                 query += ` AND file_name ILIKE $${counter++}`;
@@ -128,16 +131,21 @@ class StorageService {
         }
     }
 
-    async delete(ids: string[]) {
+    async delete(ids: string[], requestingUserId: string, isAdmin: boolean = false) {
         try {
             if (!ids || ids.length === 0) return { success: true, count: 0 };
 
-            // 1. Get storage keys for these IDs
-            const result = await pool.query(
-                `SELECT storage_key FROM storage_metadata WHERE id = ANY($1)`,
-                [ids]
-            );
+            // 1. Get storage keys for these IDs, but strictly verify ownership unless admin
+            let query = `SELECT id, storage_key FROM storage_metadata WHERE id = ANY($1)`;
+            const values = [ids];
+            if (!isAdmin) {
+                query += ` AND user_id = $2`;
+                values.push(requestingUserId as any);
+            }
+
+            const result = await pool.query(query, values);
             
+            const authorizedIds = result.rows.map(row => row.id);
             const storageKeys = result.rows.map(row => row.storage_key);
             
             if (storageKeys.length > 0) {
@@ -158,19 +166,21 @@ class StorageService {
                 } else {
                     logger.info({ count: storageKeys.length }, 'Successfully deleted objects from R2');
                 }
+
+                // 3. Delete from DB (only those we fetched above)
+                const deleteResultDb = await pool.query(
+                    'DELETE FROM storage_metadata WHERE id = ANY($1) RETURNING id',
+                    [authorizedIds]
+                );
+
+                return {
+                    success: true,
+                    deletedCount: deleteResultDb.rowCount || 0,
+                    ids: deleteResultDb.rows.map(r => r.id)
+                };
             }
 
-            // 3. Delete from DB
-            const deleteResultDb = await pool.query(
-                'DELETE FROM storage_metadata WHERE id = ANY($1) RETURNING id',
-                [ids]
-            );
-
-            return {
-                success: true,
-                deletedCount: deleteResultDb.rowCount || 0,
-                ids: deleteResultDb.rows.map(r => r.id)
-            };
+            return { success: true, deletedCount: 0, ids: [] };
         } catch (error) {
             logger.error({ error, ids }, 'Failed to delete files');
             throw error;
