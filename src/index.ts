@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import multer from 'multer';
 import { ENV } from './config/env.config';
 import logger from './config/logger';
@@ -11,7 +10,6 @@ const app = express();
 const upload = multer();
 
 // Middleware
-app.use(cors());
 app.use(express.json());
 
 // Log requests
