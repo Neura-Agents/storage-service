@@ -5,7 +5,7 @@ import logger from '../config/logger';
 import { ENV } from '../config/env.config';
 
 const client = jwksClient({
-    jwksUri: `${ENV.KEYCLOAK?.ISSUER_URL || `http://keycloak:8080/realms/${ENV.KEYCLOAK?.REALM || 'neura-agents'}`}/protocol/openid-connect/certs`,
+    jwksUri: `${ENV.KEYCLOAK?.ISSUER_URL || `http://keycloak:8080/realms/${ENV.KEYCLOAK?.REALM || 'agentic-ai'}`}/protocol/openid-connect/certs`,
     cache: true,
     rateLimit: true,
     jwksRequestsPerMinute: 5
@@ -34,7 +34,7 @@ export interface AuthenticatedRequest extends Request {
 export const authenticate = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
     // For development/local testing without Kong, we can allow a x-user-id header
     const userId = req.headers['x-user-id'] as string;
-    
+
     // First check Authorization header
     let token: string | undefined;
     const authHeader = req.headers.authorization;
